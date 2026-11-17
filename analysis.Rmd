@@ -1,0 +1,463 @@
+---
+title: "Post-fire vegetation recovery in the boreal forest: statistical methods on Sentinel-2 data"
+author: "Alejandro Vega Escobar"
+date: "`r format(Sys.Date(), '%Y-%m-%d')`"
+output:
+  github_document:
+    toc: true
+params:
+  data_dir: "data"
+  min_ndvi_pre: 0.3         # minimum pre-fire NDVI to keep a pixel (removes water)
+  recovery_threshold: 0.9   # recovered if year +3 NDVI >= 90% of pre-fire NDVI
+  n_groups: 3               # number of groups for hierarchical clustering
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE, message = FALSE, warning = FALSE,
+  fig.path = "figures/", dpi = 150, fig.width = 7, fig.height = 4.5
+)
+library(dplyr)
+library(tidyr)
+library(readr)
+library(ggplot2)
+library(patchwork)
+library(sf)
+library(terra)
+library(broom)
+library(knitr)
+library(lme4)
+source("R/functions.R")
+```
+
+## Objective
+
+Apply a chain of statistical methods to a spatial problem: does fire severity (dNBR)
+explain vegetation recovery (NDVI) three years later, and what changes when the spatial
+dependence between neighbouring pixels is taken into account? The indices are computed
+in R (`01_build_dataset.R`). The analysis is done in R.
+
+Questions addressed:
+
+1. Does recovery differ among severity classes?
+2. Which set of variables best explains year +3 NDVI?
+3. What is the probability that a pixel has recovered, given severity and terrain?
+4. What changes when spatial dependence is taken into account?
+5. Do the pixels form homogeneous zones that can be mapped?
+
+## 1. Import and cleaning
+
+`load_data()` (in `R/functions.R`) reads the exports, projects the points to the raster
+CRS, drops missing values, removes pixels with low pre-fire NDVI (water and
+non-vegetated surfaces) and computes the severity class, the recovery index
+(year +3 NDVI / pre-fire NDVI) and a binary recovered flag.
+
+```{r import}
+dat <- load_data(params$data_dir, params$min_ndvi_pre, params$recovery_threshold)
+pts <- dat$pts
+r <- dat$raster
+
+tibble(
+  step = c("Exported points", "Retained points (no missing values, pre-fire NDVI >= threshold)"),
+  n = c(dat$n_raw, nrow(pts))
+) |> kable()
+```
+
+## 2. Maps
+
+```{r maps, fig.width=9, fig.height=4}
+plot_raster_layer(r, "dNBR", "Severity (dNBR)", option = "magma") +
+  plot_raster_layer(r, "NDVI_3", "NDVI, year +3", option = "viridis")
+```
+
+## 3. Descriptive statistics by severity class
+
+```{r descriptive}
+pts |>
+  group_by(severity) |>
+  summarise(
+    n = n(),
+    dNBR_mean = mean(dNBR),
+    RI3_mean = mean(RI3),
+    RI3_sd = sd(RI3),
+    RI3_median = median(RI3),
+    .groups = "drop"
+  ) |>
+  kable(digits = 3)
+```
+
+```{r trajectory}
+pts |>
+  select(severity, NDVI_pre, NDVI_1, NDVI_2, NDVI_3) |>
+  pivot_longer(-severity, names_to = "period", values_to = "ndvi") |>
+  group_by(severity, period) |>
+  summarise(ndvi = mean(ndvi), .groups = "drop") |>
+  mutate(period = factor(period,
+                         levels = c("NDVI_pre", "NDVI_1", "NDVI_2", "NDVI_3"),
+                         labels = c("Pre-fire", "Year +1", "Year +2", "Year +3"))) |>
+  ggplot(aes(x = period, y = ndvi, colour = severity, group = severity)) +
+  geom_line() + geom_point() +
+  labs(x = NULL, y = "Mean NDVI", colour = "Severity") +
+  theme_minimal(base_size = 10)
+```
+
+## 4. Does recovery differ among severity classes?
+
+One-way analysis of variance of the recovery index by severity class, followed by
+Tukey's multiple comparisons. The Kruskal-Wallis test serves as a check if the ANOVA
+assumptions are doubtful.
+
+```{r anova}
+aov_fit <- aov(RI3 ~ severity, data = pts)
+summary(aov_fit)
+
+tuk <- tidy(TukeyHSD(aov_fit))
+tuk |> select(contrast, estimate, conf.low, conf.high, adj.p.value) |> kable(digits = 4)
+
+bartlett.test(RI3 ~ severity, data = pts)
+kruskal.test(RI3 ~ severity, data = pts)
+```
+
+```{r anova-figure, fig.width=9, fig.height=4}
+p_box <- ggplot(pts, aes(x = severity, y = RI3)) +
+  geom_boxplot(outlier.alpha = 0.3) +
+  labs(x = "Severity class", y = "Year +3 NDVI / pre-fire NDVI") +
+  theme_minimal(base_size = 10)
+
+p_tuk <- ggplot(tuk, aes(x = contrast, y = estimate, ymin = conf.low, ymax = conf.high)) +
+  geom_pointrange() +
+  geom_hline(yintercept = 0, linetype = 2) +
+  coord_flip() +
+  labs(x = NULL, y = "Difference in means (Tukey 95% CI)") +
+  theme_minimal(base_size = 10)
+
+p_box + p_tuk
+```
+
+With a large number of pixels, a very small difference can be statistically
+significant without being important. The size of the differences matters, not only the
+p-values.
+
+## 5. Correlation between severity and recovery
+
+```{r correlation}
+ct <- cor.test(pts$dNBR, pts$RI3, method = "spearman", exact = FALSE)
+
+ggplot(pts, aes(x = dNBR, y = RI3)) +
+  geom_point(alpha = 0.25, size = 0.8) +
+  geom_smooth(method = "lm", se = TRUE, colour = "firebrick") +
+  labs(x = "dNBR", y = "Year +3 NDVI / pre-fire NDVI") +
+  theme_minimal(base_size = 10)
+```
+
+```{r correlation-text, results='asis'}
+cat(sprintf(
+  "Spearman correlation between dNBR and the recovery index: rho = %.2f (%s, n = %d).\n",
+  unname(ct$estimate), format_p(ct$p.value), nrow(pts)
+))
+```
+
+## 6. Linear regression
+
+The response is year +3 NDVI. Pre-fire NDVI is a covariate, which amounts to comparing
+pixels with similar initial productivity. The topographic covariates control for the
+effect of terrain.
+
+```{r regression}
+lm_fit <- lm(NDVI_3 ~ dNBR + NDVI_pre + elevation + slope, data = pts)
+tidy(lm_fit, conf.int = TRUE) |> kable(digits = 4)
+glance(lm_fit) |> select(r.squared, adj.r.squared, sigma, nobs) |> kable(digits = 3)
+```
+
+```{r diagnostics, fig.width=9, fig.height=4}
+aug <- augment(lm_fit)
+
+p1 <- ggplot(aug, aes(.fitted, .resid)) +
+  geom_point(alpha = 0.25, size = 0.8) +
+  geom_hline(yintercept = 0, linetype = 2) +
+  labs(x = "Fitted values", y = "Residuals") +
+  theme_minimal(base_size = 10)
+
+p2 <- ggplot(aug, aes(sample = .std.resid)) +
+  stat_qq(alpha = 0.3, size = 0.8) + stat_qq_line() +
+  labs(x = "Theoretical quantiles", y = "Standardized residuals") +
+  theme_minimal(base_size = 10)
+
+p1 + p2
+```
+
+## 7. Which set of variables best explains year +3 NDVI?
+
+Candidate models are compared with Akaike's information criterion (AIC). An AIC
+difference (delta) below 2 indicates roughly equivalent models.
+
+```{r aic}
+candidates <- list(
+  "M0: pre-fire NDVI"                = lm(NDVI_3 ~ NDVI_pre, data = pts),
+  "M1: M0 + dNBR"                    = lm(NDVI_3 ~ NDVI_pre + dNBR, data = pts),
+  "M2: M1 + elevation + slope"       = lm_fit,
+  "M3: M2 + dNBR x slope interaction" = lm(NDVI_3 ~ NDVI_pre + dNBR * slope + elevation, data = pts)
+)
+
+tibble(
+  model = names(candidates),
+  parameters = sapply(candidates, function(m) length(coef(m)) + 1),
+  AIC = sapply(candidates, AIC)
+) |>
+  mutate(delta_AIC = AIC - min(AIC),
+         akaike_weight = exp(-delta_AIC / 2) / sum(exp(-delta_AIC / 2))) |>
+  arrange(AIC) |>
+  kable(digits = 3)
+```
+
+## 8. Probability that a pixel has recovered
+
+A pixel is considered recovered if its year +3 NDVI reaches at least
+`r 100 * params$recovery_threshold`% of its pre-fire NDVI. This threshold is an
+arbitrary choice: it can be changed in the report parameters. Logistic regression.
+
+```{r logistic}
+prevalence <- mean(pts$recovered)
+logit_fit <- glm(recovered ~ dNBR + NDVI_pre + elevation + slope,
+                 data = pts, family = binomial)
+
+tidy(logit_fit, conf.int = TRUE, exponentiate = TRUE) |>
+  rename(odds_ratio = estimate) |>
+  select(term, odds_ratio, conf.low, conf.high, p.value) |>
+  kable(digits = 4)
+```
+
+```{r logistic-text, results='asis'}
+prob <- predict(logit_fit, type = "response")
+cat(sprintf(
+  "Share of recovered pixels: %.1f%%. Model AUC: %.2f.\n",
+  100 * prevalence, auc_roc(prob, pts$recovered)
+))
+b <- tidy(logit_fit, conf.int = TRUE) |> filter(term == "dNBR")
+cat(sprintf(
+  "\nThe odds ratios in the table are per unit of each variable. dNBR spans roughly one unit: for a 0.1 increase in dNBR, the odds of recovery are multiplied by %.2f (95%% CI: %.2f to %.2f).\n",
+  exp(0.1 * b$estimate), exp(0.1 * b$conf.low), exp(0.1 * b$conf.high)
+))
+if (prevalence < 0.05 || prevalence > 0.95) {
+  cat("\nWarning: the share of recovered pixels is extreme.",
+      "Adjust `recovery_threshold` so that both outcomes are well represented.\n")
+}
+```
+
+```{r logistic-figure}
+grid <- tibble(
+  dNBR = seq(min(pts$dNBR), max(pts$dNBR), length.out = 100),
+  NDVI_pre = median(pts$NDVI_pre),
+  elevation = median(pts$elevation),
+  slope = median(pts$slope)
+)
+pr <- predict(logit_fit, grid, type = "link", se.fit = TRUE)
+grid <- grid |>
+  mutate(p = plogis(pr$fit),
+         lower = plogis(pr$fit - 1.96 * pr$se.fit),
+         upper = plogis(pr$fit + 1.96 * pr$se.fit))
+
+ggplot(grid, aes(dNBR, p)) +
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.2) +
+  geom_line() +
+  labs(x = "dNBR", y = "Probability of recovery",
+       caption = "Other variables held at their median") +
+  theme_minimal(base_size = 10)
+```
+
+## 9. Spatial dependence
+
+Neighbouring pixels resemble each other. If a model's residuals are autocorrelated,
+p-values and confidence intervals are too optimistic. Moran's I measures this
+dependence on the residuals of the linear regression.
+
+```{r moran}
+coords <- as.matrix(pts[, c("x", "y")])
+mor <- moran_global(coords, residuals(lm_fit), k = 8)
+mor_sum <- summarize_moran(mor)
+```
+
+```{r moran-text, results='asis'}
+cat(sprintf(
+  "Moran's I of the residuals (8 nearest neighbours): I = %.3f (%s).\n",
+  mor_sum$I, format_p(mor_sum$p)
+))
+```
+
+```{r residual-map}
+pts$resid <- residuals(lm_fit)
+lim <- quantile(abs(pts$resid), 0.98)
+
+ggplot(pts, aes(x, y, colour = resid)) +
+  geom_point(size = 0.9) +
+  coord_equal() +
+  scale_colour_gradient2(low = "steelblue", mid = "white", high = "firebrick",
+                         limits = c(-lim, lim), oob = scales::squish) +
+  labs(x = "Easting (m)", y = "Northing (m)", colour = "Residual") +
+  theme_dark(base_size = 10)
+```
+
+### Mixed model: random intercept by 500 m cell
+
+Pixels in the same 500 m cell are not independent. A mixed model with a random
+intercept per cell accounts for this. The share of variance attributed to cells
+(intraclass correlation) indicates how much this grouping matters.
+
+```{r mixed}
+pts$cell <- paste(floor(pts$x / 500), floor(pts$y / 500))
+n_cells <- n_distinct(pts$cell)
+```
+
+```{r mixed-model, eval = n_cells >= 10}
+mixed_fit <- lmer(NDVI_3 ~ dNBR + NDVI_pre + elevation + slope + (1 | cell),
+                  data = pts)
+
+vc <- as.data.frame(VarCorr(mixed_fit))
+icc <- vc$vcov[vc$grp == "cell"] / sum(vc$vcov)
+
+comparison <- bind_rows(
+  tidy(lm_fit) |> mutate(model = "Linear (independent pixels)"),
+  tibble(
+    term = rownames(coef(summary(mixed_fit))),
+    estimate = coef(summary(mixed_fit))[, "Estimate"],
+    std.error = coef(summary(mixed_fit))[, "Std. Error"],
+    model = "Mixed (random cell effect)"
+  )
+) |>
+  filter(term %in% c("dNBR", "NDVI_pre", "elevation", "slope")) |>
+  select(model, term, estimate, std.error) |>
+  arrange(term, model)
+
+kable(comparison, digits = 5)
+```
+
+```{r mixed-text, results='asis', eval = n_cells >= 10}
+mor_mixed <- summarize_moran(moran_global(coords, residuals(mixed_fit), k = 8))
+cat(sprintf(
+  "Cells: %d. Share of variance due to cells (ICC): %.2f. Moran's I of the mixed model residuals: %.3f (%s).\n",
+  n_cells, icc, mor_mixed$I, format_p(mor_mixed$p)
+))
+```
+
+```{r mixed-absent, results='asis', eval = n_cells < 10}
+cat("Fewer than 10 cells of 500 m: the mixed model is not fitted.\n")
+```
+
+### Sensitivity: spatially thinned subsample
+
+To reduce spatial dependence, a single point is kept per 500 m cell, and the linear
+model is refitted.
+
+```{r thinning}
+set.seed(2026)
+pts_thin <- pts |>
+  group_by(cell) |>
+  slice_sample(n = 1) |>
+  ungroup()
+
+lm_thin <- lm(NDVI_3 ~ dNBR + NDVI_pre + elevation + slope, data = pts_thin)
+mor_thin <- summarize_moran(moran_global(as.matrix(pts_thin[, c("x", "y")]),
+                                         residuals(lm_thin), k = 8))
+
+bind_rows(
+  tidy(lm_fit, conf.int = TRUE)  |> mutate(sample = "Full"),
+  tidy(lm_thin, conf.int = TRUE) |> mutate(sample = "Thinned (500 m)")
+) |>
+  filter(term == "dNBR") |>
+  select(sample, estimate, conf.low, conf.high, p.value) |>
+  kable(digits = 4)
+```
+
+```{r thinning-text, results='asis'}
+cat(sprintf(
+  "Thinned subsample: n = %d points, Moran's I of the residuals = %.3f (%s).\n",
+  nrow(pts_thin), mor_thin$I, format_p(mor_thin$p)
+))
+if (nrow(pts_thin) < 100) {
+  cat("\nWarning: the subsample is too small for a reliable estimate.",
+      "Increase `n_points` in `01_build_dataset.R` or reduce the cell size.\n")
+}
+```
+
+## 10. Multivariate structure and homogeneous zones
+
+Principal component analysis (centred and scaled variables) summarizes the covariation
+among severity, NDVI trajectory and terrain, followed by hierarchical clustering
+(Ward's method) on the first components. The groups are mapped to see whether they
+form coherent zones in space.
+
+```{r pca}
+pca_vars <- c("dNBR", "NDVI_pre", "NDVI_1", "NDVI_2", "NDVI_3", "elevation", "slope")
+pca <- prcomp(pts[, pca_vars], center = TRUE, scale. = TRUE)
+
+tibble(component = paste0("PC", seq_along(pca$sdev)),
+       variance_pct = 100 * pca$sdev^2 / sum(pca$sdev^2)) |>
+  mutate(cumulative_pct = cumsum(variance_pct)) |>
+  kable(digits = 1)
+```
+
+```{r pca-biplot}
+scores <- as_tibble(pca$x[, 1:2]) |> mutate(severity = pts$severity)
+loadings <- as_tibble(pca$rotation[, 1:2], rownames = "variable")
+arrow_scale <- 0.4 * min(diff(range(scores$PC1)) / diff(range(loadings$PC1)),
+                         diff(range(scores$PC2)) / diff(range(loadings$PC2)))
+
+ggplot(scores, aes(PC1, PC2)) +
+  geom_point(aes(colour = severity), alpha = 0.35, size = 0.9) +
+  geom_segment(data = loadings,
+               aes(x = 0, y = 0, xend = PC1 * arrow_scale, yend = PC2 * arrow_scale),
+               arrow = arrow(length = unit(0.2, "cm")), colour = "grey20") +
+  geom_text(data = loadings,
+            aes(x = PC1 * arrow_scale * 1.1, y = PC2 * arrow_scale * 1.1, label = variable),
+            size = 3) +
+  labs(colour = "Severity") +
+  theme_minimal(base_size = 10)
+```
+
+```{r clustering}
+set.seed(2026)
+idx <- if (nrow(pts) > 4000) sample(nrow(pts), 4000) else seq_len(nrow(pts))
+hc <- hclust(dist(pca$x[idx, 1:3]), method = "ward.D2")
+
+pts_cl <- pts[idx, ] |>
+  mutate(group = factor(cutree(hc, k = params$n_groups)))
+
+pts_cl |>
+  group_by(group) |>
+  summarise(n = n(), across(all_of(pca_vars), mean), .groups = "drop") |>
+  kable(digits = 3)
+
+table(Group = pts_cl$group, Severity = pts_cl$severity) |> kable()
+```
+
+```{r group-map}
+ggplot(pts_cl, aes(x, y, colour = group)) +
+  geom_point(size = 1) +
+  coord_equal() +
+  labs(x = "Easting (m)", y = "Northing (m)", colour = "Group") +
+  theme_minimal(base_size = 10)
+```
+
+## 11. Limitations
+
+- Median summer composites reduce clouds but do not always remove them. Local
+  artefacts remain possible.
+- The dNBR class thresholds are generic and not calibrated for the boreal forest. dNBR
+  is computed with the year +1 summer, which differs from the initial assessment made
+  right after the fire.
+- The recovery threshold (90% of pre-fire NDVI) is an arbitrary choice. The logistic
+  regression results depend on it.
+- The number of clustering groups is fixed in advance. The groups describe clusters of
+  similar pixels and have no ecological meaning in themselves.
+- NDVI saturates under dense canopy and does not distinguish species or stand
+  structure. An NDVI that returns close to its pre-fire value does not mean that
+  forest composition has recovered.
+- The analysis describes associations. It does not demonstrate causation.
+- The points are a random sample of pixels from a single fire. The results do not
+  generalize to other fires without repeating the analysis.
+
+## Reproducibility
+
+```{r session}
+sessionInfo()
+```

@@ -1,0 +1,13 @@
+.Rhistory
+.RData
+.Rproj.user/
+*.Rproj
+analysis_test.*
+analysis_files/
+tests/synthetic_data/
+.DS_Store
+tests/tmp_acq/
+data/composites/
+data/*.tif
+data/*.csv
+data/*.gpkg
