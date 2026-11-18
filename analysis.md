@@ -187,6 +187,11 @@ With a large number of pixels, a very small difference can be
 statistically significant without being important. The size of the
 differences matters, not only the p-values.
 
+**Reading.** The mean recovery index goes from 1.06 in low-severity
+pixels to 0.86 in high-severity pixels. The variance is unequal among
+classes (Bartlett test), so the Kruskal-Wallis test and the rank-based
+correlation in the next section are the safer references.
+
 ## 5. Correlation between severity and recovery
 
 ``` r
@@ -257,6 +262,12 @@ p1 + p2
 
 ![](figures/diagnostics-1.png)<!-- -->
 
+**Reading.** Holding pre-fire NDVI and terrain constant, a 0.1 increase
+in dNBR is associated with a 0.023 lower year +3 NDVI. The model
+explains 48% of the variance (R² = 0.48). The coefficients are
+associations, and their standard errors assume independent pixels, which
+section 9 shows is not the case.
+
 ## 7. Which set of variables best explains year +3 NDVI?
 
 Candidate models are compared with Akaike’s information criterion (AIC).
@@ -287,6 +298,10 @@ tibble(
 | M2: M1 + elevation + slope | 6 | -8477.766 | 4.745 | 0.085 |
 | M1: M0 + dNBR | 4 | -8459.714 | 22.797 | 0.000 |
 | M0: pre-fire NDVI | 3 | -6878.689 | 1603.822 | 0.000 |
+
+Because the residuals are spatially autocorrelated (section 9), AIC
+tends to favour more complex models than an analysis of independent data
+would. Read the ranking as indicative.
 
 ## 8. Probability that a pixel has recovered
 
@@ -336,13 +351,6 @@ roughly one unit: for a 0.1 increase in dNBR, the odds of recovery are
 multiplied by 0.54 (95% CI: 0.51 to 0.57).
 
 ``` r
-if (prevalence < 0.05 || prevalence > 0.95) {
-  cat("\nWarning: the share of recovered pixels is extreme.",
-      "Adjust `recovery_threshold` so that both outcomes are well represented.\n")
-}
-```
-
-``` r
 grid <- tibble(
   dNBR = seq(min(pts$dNBR), max(pts$dNBR), length.out = 100),
   NDVI_pre = median(pts$NDVI_pre),
@@ -364,6 +372,11 @@ ggplot(grid, aes(dNBR, p)) +
 ```
 
 ![](figures/logistic-figure-1.png)<!-- -->
+
+**Reading.** The AUC is computed on the same data used to fit the model,
+so it is optimistic. It describes how well severity and terrain separate
+recovered from non-recovered pixels in this fire, not how the model
+would perform on another one.
 
 ## 9. Spatial dependence
 
@@ -460,10 +473,6 @@ cat(sprintf(
 Cells: 342. Share of variance due to cells (ICC): 0.34. Moran’s I of the
 mixed model residuals: 0.065 (p \< 0.001).
 
-``` r
-cat("Fewer than 10 cells of 500 m: the mixed model is not fitted.\n")
-```
-
 ### Sensitivity: spatially thinned subsample
 
 To reduce spatial dependence, a single point is kept per 500 m cell, and
@@ -504,12 +513,13 @@ cat(sprintf(
 Thinned subsample: n = 342 points, Moran’s I of the residuals = 0.186 (p
 \< 0.001).
 
-``` r
-if (nrow(pts_thin) < 100) {
-  cat("\nWarning: the subsample is too small for a reliable estimate.",
-      "Increase `n_points` in `01_build_dataset.R` or reduce the cell size.\n")
-}
-```
+**Synthesis.** Moran’s I of the linear model residuals is 0.40
+(significant spatial autocorrelation). It is 0.07 for the mixed model
+and 0.19 for the thinned subsample. The dNBR coefficient is -0.232
+(full), -0.243 (mixed) and -0.219 (thinned), so the severity effect is
+stable across the three approaches. Terms whose estimate changes between
+the linear and the mixed model in the table above should be read with
+caution.
 
 ## 10. Multivariate structure and homogeneous zones
 
@@ -579,14 +589,17 @@ pts_cl |>
 | 3     |  154 | 0.016 |    0.511 |  0.592 |  0.681 |  0.714 |   319.846 | 4.227 |
 
 ``` r
-table(Group = pts_cl$group, Severity = pts_cl$severity) |> kable()
+table(Group = pts_cl$group, Severity = pts_cl$severity) |>
+  as.data.frame.matrix() |>
+  tibble::rownames_to_column("Group") |>
+  kable()
 ```
 
-| Low | Moderate | High |
-|----:|---------:|-----:|
-| 850 |     1013 |   20 |
-|   4 |      634 |  309 |
-| 147 |        7 |    0 |
+| Group | Low | Moderate | High |
+|:------|----:|---------:|-----:|
+| 1     | 850 |     1013 |   20 |
+| 2     |   4 |      634 |  309 |
+| 3     | 147 |        7 |    0 |
 
 ``` r
 ggplot(pts_cl, aes(x, y, colour = group)) +
@@ -630,7 +643,7 @@ sessionInfo()
     ## Running under: macOS Golden Gate 27.2.1
     ## 
     ## Matrix products: default
-    ## BLAS:   /System/Library/Frameworks/Accelerate.framework/Versions/A/Frameworks/vecLib.framework/Versions/A/libBLAS.dylib 
+    ## BLAS:   /Library/Frameworks/R.framework/Versions/4.6/Resources/lib/libRblas.0.dylib 
     ## LAPACK: /Library/Frameworks/R.framework/Versions/4.6/Resources/lib/libRlapack.dylib;  LAPACK version 3.12.1
     ## 
     ## locale:
@@ -643,21 +656,25 @@ sessionInfo()
     ## [1] stats     graphics  grDevices utils     datasets  methods   base     
     ## 
     ## other attached packages:
-    ##  [1] lme4_2.1-0      Matrix_1.7-5    knitr_1.52      broom_1.0.13    terra_1.9-50    sf_1.1-3        patchwork_1.3.2 ggplot2_4.0.4  
+    ##  [1] lme4_2.1-0      Matrix_1.7-5    knitr_1.52      broom_1.0.13   
+    ##  [5] terra_1.9-50    sf_1.1-3        patchwork_1.3.2 ggplot2_4.0.4  
     ##  [9] readr_2.2.0     tidyr_1.3.2     dplyr_1.2.1    
     ## 
     ## loaded via a namespace (and not attached):
-    ##  [1] tidyselect_1.2.1    viridisLite_0.4.3   DHARMa_0.4.7        glmmTMB_1.1.14      farver_2.1.2        S7_0.2.2           
-    ##  [7] fastmap_1.2.0       digest_0.6.39       estimability_1.5.1  lifecycle_1.0.5     magrittr_2.0.5      compiler_4.6.1     
-    ## [13] rlang_1.2.0         tools_4.6.1         igraph_2.3.4        yaml_2.3.12         labeling_0.4.3      bit_4.6.0          
-    ## [19] sp_2.2-1            classInt_0.4-11     RColorBrewer_1.1-3  KernSmooth_2.23-26  withr_3.0.2         purrr_1.2.2        
-    ## [25] numDeriv_2016.8-1.1 grid_4.6.1          stats4_4.6.1        xtable_1.8-8        e1071_1.7-17        emmeans_2.0.3      
-    ## [31] scales_1.4.0        MASS_7.3-65         cli_3.6.6           mvtnorm_1.4-0       rmarkdown_2.32      crayon_1.5.3       
-    ## [37] reformulas_0.4.4    generics_0.1.4      otel_0.2.0          rstudioapi_0.18.0   tzdb_0.5.0          spdep_1.4-2        
-    ## [43] minqa_1.2.8         DBI_1.3.0           proxy_0.4-29        splines_4.6.1       parallel_4.6.1      s2_1.1.11          
-    ## [49] vctrs_0.7.3         boot_1.3-32         sandwich_3.1-1      spData_2.3.5        hms_1.1.4           bit64_4.8.6        
-    ## [55] ggrepel_0.9.8       units_1.0-1         glue_1.8.1          nloptr_2.2.1        codetools_0.2-20    gtable_0.3.6       
-    ## [61] deldir_2.0-4        tibble_3.3.1        pillar_1.11.1       htmltools_0.5.9     R6_2.6.1            TMB_1.9.21         
-    ## [67] wk_0.9.5            Rdpack_2.6.6        vroom_1.7.1         evaluate_1.0.5      lattice_0.22-9      rbibutils_2.4.1    
-    ## [73] backports_1.5.1     class_7.3-23        Rcpp_1.1.1-1.1      nlme_3.1-169        mgcv_1.9-4          xfun_0.57          
-    ## [79] zoo_1.8-15          pkgconfig_2.0.3
+    ##  [1] gtable_0.3.6       xfun_0.57          lattice_0.22-9     tzdb_0.5.0        
+    ##  [5] vctrs_0.7.3        tools_4.6.1        Rdpack_2.6.6       generics_0.1.4    
+    ##  [9] spdep_1.4-2        stats4_4.6.1       parallel_4.6.1     tibble_3.3.1      
+    ## [13] proxy_0.4-29       pkgconfig_2.0.3    KernSmooth_2.23-26 RColorBrewer_1.1-3
+    ## [17] S7_0.2.2           lifecycle_1.0.5    deldir_2.0-4       compiler_4.6.1    
+    ## [21] farver_2.1.2       codetools_0.2-20   htmltools_0.5.9    class_7.3-23      
+    ## [25] yaml_2.3.12        pillar_1.11.1      nloptr_2.2.1       crayon_1.5.3      
+    ## [29] MASS_7.3-65        classInt_0.4-11    wk_0.9.5           reformulas_0.4.4  
+    ## [33] boot_1.3-32        nlme_3.1-169       tidyselect_1.2.1   digest_0.6.39     
+    ## [37] purrr_1.2.2        labeling_0.4.3     splines_4.6.1      fastmap_1.2.0     
+    ## [41] grid_4.6.1         cli_3.6.6          magrittr_2.0.5     e1071_1.7-17      
+    ## [45] withr_3.0.2        scales_1.4.0       backports_1.5.1    sp_2.2-1          
+    ## [49] bit64_4.8.6        spData_2.3.5       rmarkdown_2.32     igraph_2.3.4      
+    ## [53] bit_4.6.0          otel_0.2.0         hms_1.1.4          evaluate_1.0.5    
+    ## [57] rbibutils_2.4.1    viridisLite_0.4.3  s2_1.1.11          mgcv_1.9-4        
+    ## [61] rlang_1.2.0        Rcpp_1.1.1-1.1     glue_1.8.1         DBI_1.3.0         
+    ## [65] vroom_1.7.1        minqa_1.2.8        R6_2.6.1           units_1.0-1

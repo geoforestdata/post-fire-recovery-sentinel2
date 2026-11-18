@@ -83,7 +83,9 @@ plot_raster_layer <- function(r, layer, title, option = "viridis", limits = NULL
     ggplot2::coord_sf(crs = sf::st_crs(terra::crs(r)), datum = NA, expand = FALSE) +
     ggplot2::labs(title = title) +
     ggplot2::theme_void(base_size = 10) +
-    ggplot2::theme(plot.title = ggplot2::element_text(face = "bold"))
+    ggplot2::theme(plot.title = ggplot2::element_text(face = "bold"),
+                   panel.background = ggplot2::element_rect(fill = "grey90", colour = "grey60",
+                                                            linewidth = 0.3))
 }
 
 # Global Moran's I for a vector of values (for example residuals),

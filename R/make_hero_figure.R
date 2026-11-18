@@ -59,7 +59,7 @@ p3 <- ggplot(grid, aes(dNBR, p)) +
 
 titre <- plot_annotation(
   title = "Post-fire vegetation recovery from Sentinel-2",
-  subtitle = "Severity, year +3 NDVI and modelled probability of recovery",
+  subtitle = "Burn severity, vegetation three years later and modelled probability of recovery. Grey: outside the fire, or unburned islands and water inside it.",
   theme = theme(plot.title = element_text(face = "bold", size = 16),
                 plot.subtitle = element_text(colour = "grey30", size = 11))
 )
