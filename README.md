@@ -24,6 +24,21 @@ dependence between neighbouring pixels is taken into account.
 | What changes when spatial dependence is considered? | Moran's I, mixed model with a random cell effect, spatially thinned subsample |
 | Do pixels form homogeneous zones? | PCA, Ward hierarchical clustering, map of the groups |
 
+## Key results
+
+Case study: a 4,674 ha fire (2023) near Lebel-sur-Quévillon, Québec, analysed on 2,984 randomly sampled 20 m pixels.
+
+- **Severity matters.** The recovery index (year +3 NDVI / pre-fire NDVI) falls from 1.06 in low-severity pixels to 0.91 (moderate) and 0.86 (high). Spearman correlation with dNBR: rho = -0.63.
+- **Recovery odds drop sharply with severity.** Each 0.1 increase in dNBR multiplies the odds of recovery (year +3 NDVI at least 90% of pre-fire) by 0.54 (95% CI 0.51 to 0.57). 68.9% of pixels have recovered; in-sample AUC is 0.81.
+- **Spatial dependence is strong.** Moran's I of the linear model residuals is 0.40. A random cell effect (500 m; intraclass correlation 0.34) brings it down to 0.07.
+- **The severity effect holds, others do not.** The dNBR coefficient is -0.232 (linear), -0.243 (mixed) and -0.219 (spatially thinned). The elevation coefficient changes sign between the linear and the mixed model, so it should not be interpreted.
+
+![NDVI trajectories by severity class](figures/trajectory-1.png)
+
+![Severity versus recovery](figures/correlation-1.png)
+
+These are associations from a single fire, not causal effects. Full methods, diagnostics and limitations are in [`analysis.md`](analysis.md).
+
 ## How it works
 
 1. **Data acquisition in R** ([`R/acquisition.R`](R/acquisition.R), run by
