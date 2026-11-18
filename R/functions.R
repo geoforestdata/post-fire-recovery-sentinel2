@@ -65,7 +65,7 @@ plot_raster_layer <- function(r, layer, title, option = "viridis", limits = NULL
   bar_label <- if (bar >= 1000) paste(bar / 1000, "km") else paste(bar, "m")
   x0 <- xr[1] + 0.04 * w
   y0 <- yr[1] + 0.05 * h
-  xn <- xr[2] - 0.05 * w
+  xn <- xr[1] + 0.06 * w
 
   ggplot2::ggplot() +
     ggplot2::geom_raster(data = d, ggplot2::aes(x = x, y = y, fill = value)) +
