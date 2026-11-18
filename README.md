@@ -2,15 +2,16 @@
 
 ![R](https://img.shields.io/badge/R-4.3%2B-276DC3?logo=r&logoColor=white)
 ![Sentinel-2 STAC](https://img.shields.io/badge/Data-STAC%20Earth%20Search-0B7285)
-![Sentinel-2](https://img.shields.io/badge/Sentinel--2-L2A%20harmonized-1B6CA8)
+![Sentinel-2](https://img.shields.io/badge/Sentinel--2-L2A-1B6CA8)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
 ![Overview](figures/hero.png)
 
-A reproducible workflow that links **fire severity (dNBR)** to **vegetation recovery
-(NDVI) three years later**. Satellite indices are computed in R from public Sentinel-2 scenes (no account needed)
-and the spatial and statistical analysis follows in R, including what changes when the
-dependence between neighbouring pixels is taken into account.
+A basic question after a wildfire is where vegetation comes back and where it does not. This repository answers it for one fire, with open satellite data and R only: it measures how severely each 20 m pixel burned (dNBR), how much of its pre-fire greenness (NDVI) it has recovered three years later, and tests whether severity explains the difference.
+
+It also covers a common pitfall of spatial data. Neighbouring pixels are not independent, so ordinary regression overstates certainty. The report quantifies this and compares three ways of handling it (Moran's I, a mixed model with a random cell effect, and a spatially thinned sample).
+
+**Use it as a template:** to repeat the analysis on another fire, change the perimeter file and the fire year in [`01_build_dataset.R`](01_build_dataset.R) and re-run. No account or API key is needed.
 
 **Read the full report:** [`analysis.md`](analysis.md)
 
