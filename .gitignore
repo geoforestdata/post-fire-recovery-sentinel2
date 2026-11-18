@@ -11,3 +11,5 @@ data/composites/
 data/*.tif
 data/*.csv
 data/*.gpkg
+analysis.html
+analysis.knit.md

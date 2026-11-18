@@ -138,6 +138,20 @@ With a large number of pixels, a very small difference can be statistically
 significant without being important. The size of the differences matters, not only the
 p-values.
 
+
+```{r interp-anova, results='asis', echo=FALSE}
+m <- tapply(pts$RI3, pts$severity, mean)
+bt <- bartlett.test(RI3 ~ severity, data = pts)$p.value
+cat(sprintf(
+  "**Reading.** The mean recovery index goes from %.2f in low-severity pixels to %.2f in high-severity pixels. ",
+  m[["Low"]], m[["High"]]))
+if (bt < 0.05) {
+  cat("The variance is unequal among classes (Bartlett test), so the Kruskal-Wallis test and the rank-based correlation in the next section are the safer references.\n")
+} else {
+  cat("The variances are similar among classes (Bartlett test), so the ANOVA assumptions are reasonable.\n")
+}
+```
+
 ## 5. Correlation between severity and recovery
 
 ```{r correlation}
@@ -186,6 +200,13 @@ p2 <- ggplot(aug, aes(sample = .std.resid)) +
 p1 + p2
 ```
 
+
+```{r interp-lm, results='asis', echo=FALSE}
+cat(sprintf(
+  "**Reading.** Holding pre-fire NDVI and terrain constant, a 0.1 increase in dNBR is associated with a %.3f lower year +3 NDVI. The model explains %.0f%% of the variance (R² = %.2f). The coefficients are associations, and their standard errors assume independent pixels, which section 9 shows is not the case.\n",
+  -0.1 * coef(lm_fit)[["dNBR"]], 100 * summary(lm_fit)$r.squared, summary(lm_fit)$r.squared))
+```
+
 ## 7. Which set of variables best explains year +3 NDVI?
 
 Candidate models are compared with Akaike's information criterion (AIC). An AIC
@@ -209,6 +230,10 @@ tibble(
   arrange(AIC) |>
   kable(digits = 3)
 ```
+
+
+Because the residuals are spatially autocorrelated (section 9), AIC tends to favour more
+complex models than an analysis of independent data would. Read the ranking as indicative.
 
 ## 8. Probability that a pixel has recovered
 
@@ -238,6 +263,9 @@ cat(sprintf(
   "\nThe odds ratios in the table are per unit of each variable. dNBR spans roughly one unit: for a 0.1 increase in dNBR, the odds of recovery are multiplied by %.2f (95%% CI: %.2f to %.2f).\n",
   exp(0.1 * b$estimate), exp(0.1 * b$conf.low), exp(0.1 * b$conf.high)
 ))
+```
+
+```{r logistic-warning, results='asis', echo=FALSE}
 if (prevalence < 0.05 || prevalence > 0.95) {
   cat("\nWarning: the share of recovered pixels is extreme.",
       "Adjust `recovery_threshold` so that both outcomes are well represented.\n")
@@ -263,6 +291,11 @@ ggplot(grid, aes(dNBR, p)) +
   labs(x = "dNBR", y = "Probability of recovery",
        caption = "Other variables held at their median") +
   theme_minimal(base_size = 10)
+```
+
+
+```{r interp-logit, results='asis', echo=FALSE}
+cat("**Reading.** The AUC is computed on the same data used to fit the model, so it is optimistic. It describes how well severity and terrain separate recovered from non-recovered pixels in this fire, not how the model would perform on another one.\n")
 ```
 
 ## 9. Spatial dependence
@@ -339,7 +372,7 @@ cat(sprintf(
 ))
 ```
 
-```{r mixed-absent, results='asis', eval = n_cells < 10}
+```{r mixed-absent, results='asis', echo=FALSE, eval = n_cells < 10}
 cat("Fewer than 10 cells of 500 m: the mixed model is not fitted.\n")
 ```
 
@@ -373,10 +406,37 @@ cat(sprintf(
   "Thinned subsample: n = %d points, Moran's I of the residuals = %.3f (%s).\n",
   nrow(pts_thin), mor_thin$I, format_p(mor_thin$p)
 ))
+```
+
+```{r thinning-warning, results='asis', echo=FALSE}
 if (nrow(pts_thin) < 100) {
   cat("\nWarning: the subsample is too small for a reliable estimate.",
       "Increase `n_points` in `01_build_dataset.R` or reduce the cell size.\n")
 }
+```
+
+
+```{r interp-spatial, results='asis', echo=FALSE}
+b_full <- coef(lm_fit)[["dNBR"]]
+b_thin <- coef(lm_thin)[["dNBR"]]
+txt <- sprintf(
+  "**Synthesis.** Moran's I of the linear model residuals is %.2f (%s). ",
+  mor_sum$I, if (mor_sum$p < 0.05) "significant spatial autocorrelation" else "no significant autocorrelation")
+if (n_cells >= 10) {
+  txt <- paste0(txt, sprintf(
+    "It is %.2f for the mixed model and %.2f for the thinned subsample. ",
+    mor_mixed$I, mor_thin$I))
+  b_mix <- fixef(mixed_fit)[["dNBR"]]
+  est <- c(b_full, b_mix, b_thin)
+  stable <- all(sign(est) == sign(est[1])) && (max(abs(est)) / min(abs(est)) < 1.25)
+  txt <- paste0(txt, sprintf(
+    "The dNBR coefficient is %.3f (full), %.3f (mixed) and %.3f (thinned)%s Terms whose estimate changes between the linear and the mixed model in the table above should be read with caution.",
+    b_full, b_mix, b_thin,
+    if (stable) ", so the severity effect is stable across the three approaches." else ", so the severity effect depends on how spatial dependence is handled."))
+} else {
+  txt <- paste0(txt, sprintf("The dNBR coefficient is %.3f (full) and %.3f (thinned).", b_full, b_thin))
+}
+cat(txt, "\n")
 ```
 
 ## 10. Multivariate structure and homogeneous zones
@@ -427,7 +487,10 @@ pts_cl |>
   summarise(n = n(), across(all_of(pca_vars), mean), .groups = "drop") |>
   kable(digits = 3)
 
-table(Group = pts_cl$group, Severity = pts_cl$severity) |> kable()
+table(Group = pts_cl$group, Severity = pts_cl$severity) |>
+  as.data.frame.matrix() |>
+  tibble::rownames_to_column("Group") |>
+  kable()
 ```
 
 ```{r group-map}

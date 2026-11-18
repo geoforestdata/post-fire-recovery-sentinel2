@@ -81,6 +81,17 @@ rmarkdown::render("analysis.Rmd", params = list(data_dir = "tests/synthetic_data
 These data are synthetic and only check that the code runs. Results obtained this way
 have no scientific value.
 
+## Related work
+
+This repository is the within-fire companion of
+[`lebel-fire-vegetation-recovery`](https://github.com/geoforestdata/lebel-fire-vegetation-recovery),
+which compares 78 fires (1985-2023, Landsat and ERA5-Land, Python) at the fire level.
+That analysis lists within-fire heterogeneity as a limitation. Here a single fire inside
+the same study area (2023, about 25 km from Lebel-sur-Quévillon) is analysed at the pixel
+level with Sentinel-2, in R: what explains differences in recovery within one fire, and
+how much does ignoring spatial dependence change the answer. The fire is too recent for
+the cohort comparison to include its three-year recovery.
+
 ## Limitations
 
 NDVI saturates under dense canopy and says nothing about species or stand structure. The

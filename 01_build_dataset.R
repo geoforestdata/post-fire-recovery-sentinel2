@@ -16,7 +16,7 @@ source("R/acquisition.R")
 
 # ---- Configuration ---------------------------------------------------------
 
-perimeter_path <- "data/fire_perimeter.gpkg"  # your fire perimeter (.gpkg, .shp, ...)
+perimeter_path <- "data/fire_perimeter.geojson"  # your fire perimeter (.gpkg, .shp, ...)
 fire_year      <- 2023                        # the summer of year +3 must be over
 
 start_md   <- "06-15"   # summer window used for the composites (month-day)

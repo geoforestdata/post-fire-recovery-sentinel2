@@ -88,10 +88,30 @@ offset_dn <- function(baseline, datetime) {
   if (baseline >= "04.00") 1000 else 0
 }
 
+# Decides how to convert the values of a scene to reflectance, from the data itself.
+# Depending on the source, values can be raw digital numbers with a +1000 offset
+# (processing baseline 04.00 or later), digital numbers without it, or already scaled
+# reflectance. A dark target (SWIR2 over forest or water) has a reflectance below 0.1,
+# i.e. a DN below 1000 without offset and above 1000 with it. If the data cannot tell,
+# the processing baseline decides.
+detect_calibration <- function(swir, baseline, datetime) {
+  q <- tryCatch(unname(terra::global(swir, fun = function(x) stats::quantile(x, 0.01, na.rm = TRUE))[1, 1]),
+                error = function(e) NA_real_)
+  mx <- tryCatch(unname(terra::global(swir, "max", na.rm = TRUE)[1, 1]), error = function(e) NA_real_)
+  if (!is.na(mx) && mx <= 5) return(list(div = 1, off = 0, how = "already reflectance"))
+  if (is.na(q)) return(list(div = 10000, off = offset_dn(baseline, datetime), how = "from baseline"))
+  if (q >= 1000) list(div = 10000, off = 1000, how = "offset detected in the data")
+  else list(div = 10000, off = 0, how = "no offset in the data")
+}
+
 # Reads one asset (URL or local path), crops it to the area of interest in the
 # scene's own CRS and resamples it to the template grid.
 read_band <- function(href, template, method = "bilinear", zero_is_na = TRUE) {
-  path <- if (grepl("^https?://", href)) paste0("/vsicurl/", href) else href
+  path <- if (grepl("^s3://", href)) {
+    sub("^s3://([^/]+)/(.*)$", "/vsicurl/https://\\1.s3.amazonaws.com/\\2", href)
+  } else if (grepl("^https?://", href)) {
+    paste0("/vsicurl/", href)
+  } else href
   src <- terra::rast(path)
   window <- terra::project(
     terra::as.polygons(terra::ext(template), crs = terra::crs(template)),
@@ -113,11 +133,12 @@ build_composite <- function(scenes, template, verbose = TRUE) {
     if (verbose) message(sprintf("  scene %d/%d (%s)", i, nrow(scenes), s$id))
     layers <- tryCatch({
       scl <- read_band(s$scl, template, method = "near", zero_is_na = FALSE)
-      bad <- scl %in% SCL_BAD
-      off <- offset_dn(s$baseline, s$datetime)
-      lapply(bands, function(b) {
-        x <- read_band(s[[b]], template, method = "bilinear")
-        x <- terra::clamp(x - off, lower = 0, values = TRUE) / 10000
+      bad <- Reduce(`|`, lapply(SCL_BAD, function(v) scl == v))
+      raw <- lapply(bands, function(b) read_band(s[[b]], template, method = "bilinear"))
+      cal <- detect_calibration(raw[[3]], s$baseline, s$datetime)
+      if (verbose) message(sprintf("    scale 1/%g, offset %g DN (%s)", cal$div, cal$off, cal$how))
+      lapply(raw, function(x) {
+        x <- terra::clamp(x - cal$off, lower = 0, values = TRUE) / cal$div
         terra::mask(x, bad, maskvalues = TRUE, filename = tmp(),
                     overwrite = TRUE, datatype = "FLT4S")
       })
@@ -173,7 +194,10 @@ read_dem_stac <- function(aoi_ll, template, stac_url = STAC_URL) {
 
   tiles <- lapply(hrefs, function(h) {
     tryCatch(read_band(h, template, method = "bilinear", zero_is_na = FALSE),
-             error = function(e) NULL)
+             error = function(e) {
+               message("  DEM tile skipped (", h, "): ", conditionMessage(e))
+               NULL
+             })
   })
   tiles <- Filter(Negate(is.null), tiles)
   if (length(tiles) == 0) stop("DEM tiles could not be read.")
