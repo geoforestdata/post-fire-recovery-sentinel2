@@ -102,6 +102,26 @@ autocorrelated, which the report evaluates. The analysis covers a single fire an
 describes associations, not causes. The limitations are detailed at the end of
 `analysis.Rmd`.
 
+## How to cite this repository
+
+Vega Escobar, A. (2026). Post-fire vegetation recovery from Sentinel-2: spatial statistics in R [GitHub repository]. GitHub. https://github.com/geoforestdata/post-fire-recovery-sentinel2
+
+```bibtex
+@misc{vegaescobar2026postfire,
+  author       = {Vega Escobar, Alejandro},
+  title        = {Post-fire vegetation recovery from Sentinel-2: spatial statistics in R},
+  year         = {2026},
+  publisher    = {GitHub},
+  howpublished = {\url{https://github.com/geoforestdata/post-fire-recovery-sentinel2}}
+}
+```
+
+## Data sources
+
+- Sentinel-2 Level-2A surface reflectance, ESA / Copernicus, accessed through the Earth Search STAC catalogue.
+- Copernicus DEM GLO-30, ESA / Copernicus.
+- Fire perimeter: Canadian National Fire Database, Natural Resources Canada, Canadian Forest Service.
+
 ## Author
 
-Alejandro Vega Escobar, PhD candidate, Institut de recherche sur les forêts (IRF), UQAT.
+Alejandro Vega Escobar

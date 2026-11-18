@@ -1,0 +1,16 @@
+cff-version: 1.2.0
+message: "If you use this repository, please cite it as below."
+title: "Post-fire vegetation recovery from Sentinel-2: spatial statistics in R"
+type: software
+authors:
+  - family-names: "Vega Escobar"
+    given-names: "Alejandro"
+repository-code: "https://github.com/geoforestdata/post-fire-recovery-sentinel2"
+license: MIT
+date-released: "2026-11-17"
+keywords:
+  - wildfire
+  - remote sensing
+  - Sentinel-2
+  - spatial statistics
+  - R
