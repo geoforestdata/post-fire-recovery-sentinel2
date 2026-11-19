@@ -7,7 +7,7 @@
 
 ![Overview](figures/hero.png)
 
-A basic question after a wildfire is where vegetation comes back and where it does not. This repository answers it for one fire, with open satellite data and R only: it measures how severely each 20 m pixel burned (dNBR), how much of its pre-fire greenness (NDVI) it has recovered three years later, and tests whether severity explains the difference.
+A basic question after a wildfire is where vegetation comes back and where it does not. This repository answers it for one fire, with open satellite data and R only: it measures how severely each 20 m pixel burned (dNBR), how much of its pre-fire greenness (NDVI) it has recovered three years later, and tests whether severity explains the difference. At this stage NDVI reflects mostly herbaceous and shrub cover, so this is recovery of greenness, not of tree regeneration (see Limitations).
 
 It also covers a common pitfall of spatial data. Neighbouring pixels are not independent, so ordinary regression overstates certainty. The report quantifies this and compares three ways of handling it (Moran's I, a mixed model with a random cell effect, and a spatially thinned sample).
 
@@ -110,7 +110,7 @@ the cohort comparison to include its three-year recovery.
 
 ## Limitations
 
-NDVI saturates under dense canopy and says nothing about species or stand structure. The
+NDVI measures greenness, not forest. Three years after a fire the signal comes mostly from herbaceous and shrub cover, including ericaceous understory, because tree seedlings are still too small to dominate a pixel. "Recovery" here means recovery of greenness, not of tree regeneration, and it should be checked against field-based regeneration data. NDVI also saturates under dense canopy and says nothing about species or stand structure. The
 dNBR class thresholds are generic and not calibrated for the boreal forest. The recovery
 threshold of the logistic regression (90% of pre-fire NDVI) is an arbitrary choice that
 can be changed in the parameters of `analysis.Rmd`. The sampled points are spatially
